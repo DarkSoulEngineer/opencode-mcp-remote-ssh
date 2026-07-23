@@ -9,7 +9,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io)
 [![Tools](https://img.shields.io/badge/Tools-62-orange.svg)](#tool-reference)
 
-*62 tools to execute commands, manage files, control services, containers, and more — all through a single MCP server.*
+*62 tools to execute commands, manage files, control services, containers, and more - all through a single MCP server.*
 
 </div>
 
@@ -17,7 +17,7 @@
 
 ## Why?
 
-OpenCode's built-in SSH support is limited to individual commands. This MCP server gives you **persistent, interactive access** to remote systems — read files, manage Docker/LXC containers, control systemd services, transfer files, and inspect system state, all as native tools.
+OpenCode's built-in SSH support is limited to individual commands. This MCP server gives you **persistent, interactive access** to remote systems - read files, manage Docker/LXC containers, control systemd services, transfer files, and inspect system state, all as native tools.
 
 ## Features
 
@@ -55,13 +55,13 @@ npm install
 
 ### Option 1: Config File (Recommended)
 
-**Step 1 — Create your config:**
+**Step 1 - Create your config:**
 
 ```bash
 cp config.example.json config.json
 ```
 
-**Step 2 — Edit `config.json`:**
+**Step 2 - Edit `config.json`:**
 
 ```json
 {
@@ -94,15 +94,15 @@ cp config.example.json config.json
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `host` | yes | — | IP address or hostname |
+| `host` | yes | - | IP address or hostname |
 | `port` | no | `22` | SSH port |
-| `user` | yes | — | SSH username |
-| `key` | no | — | Path to private key file |
-| `password` | no | — | Password (key-based auth preferred) |
+| `user` | yes | - | SSH username |
+| `key` | no | - | Path to private key file |
+| `password` | no | - | Password (key-based auth preferred) |
 
 </details>
 
-**Step 3 — Register in OpenCode:**
+**Step 3 - Register in OpenCode:**
 
 Add to `~/.config/opencode/opencode.jsonc`:
 
@@ -123,7 +123,7 @@ Add to `~/.config/opencode/opencode.jsonc`:
 
 ### Option 2: Environment Variables (Single Host)
 
-No config file needed — use environment variables directly:
+No config file needed - use environment variables directly:
 
 ```json
 {
@@ -143,7 +143,7 @@ No config file needed — use environment variables directly:
 }
 ```
 
-**Step 4 — Restart OpenCode.**
+**Step 4 - Restart OpenCode.**
 
 ---
 
