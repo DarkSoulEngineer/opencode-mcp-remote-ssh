@@ -1,0 +1,23 @@
+{
+  "defaultHost": "my-server",
+  "hosts": {
+    "my-server": {
+      "host": "192.168.2.140",
+      "port": 22,
+      "user": "root",
+      "key": "~/.ssh/id_ed25519"
+    },
+    "production": {
+      "host": "prod.example.com",
+      "port": 22,
+      "user": "deploy",
+      "key": "~/.ssh/id_rsa"
+    },
+    "staging": {
+      "host": "staging.example.com",
+      "port": 2222,
+      "user": "admin",
+      "password": "optional-password-auth"
+    }
+  }
+}

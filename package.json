@@ -1,0 +1,10 @@
+{
+  "name": "opencode-mcp-remote-ssh",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "ssh2": "^1.16.0"
+  }
+}
