@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io)
-[![Tools](https://img.shields.io/badge/Tools-62-orange.svg)](#tool-reference)
+[![Tools](https://img.shields.io/badge/Tools-68-orange.svg)](#tool-reference)
 
-*62 tools to execute commands, manage files, control services, containers, and more - all through a single MCP server.*
+*68 tools to execute commands, manage files, control services, containers, and more - all through a single MCP server.*
 
 </div>
 
@@ -23,6 +23,7 @@ OpenCode's built-in SSH support is limited to individual commands. This MCP serv
 
 | Category | What you can do |
 |----------|-----------------|
+| **Persistent Shell** | Bind shell sessions - open, exec, read, send, close |
 | **Multi-Host** | Connect to unlimited servers from one config |
 | **File Transfer** | Upload/download files and directories (SCP-like) |
 | **LXC/LXD** | Create, attach, snapshot, freeze/unfreeze containers |
@@ -173,6 +174,20 @@ If `host` is omitted, the `defaultHost` from your config is used.
 | `ssh_exec` | Execute a shell command |
 | `ssh_ping` | Test SSH connection latency |
 | `ssh_sysinfo` | System information overview |
+
+</details>
+
+<details>
+<summary><strong>Persistent Shell (6)</strong></summary>
+
+| Tool | Description |
+|------|-------------|
+| `ssh_shell_open` | Open a persistent interactive shell (PTY) |
+| `ssh_shell_exec` | Execute command in persistent shell |
+| `ssh_shell_read` | Read output from shell buffer |
+| `ssh_shell_send` | Send input without waiting (interactive programs) |
+| `ssh_shell_close` | Close shell session |
+| `ssh_shell_status` | List all active shell sessions |
 
 </details>
 
