@@ -170,6 +170,131 @@ function lxcCommand(hostAlias, container, command) {
   return execCommand(`${prefix} ${command}`, "/", hostAlias);
 }
 
+// ─── Persistent Shell Sessions ─────────────────────────────────────
+
+const shellSessions = new Map(); // sessionId -> { stream, client, buffer, lastOutput }
+
+function generateSessionId() {
+  return `shell_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function openShellSession(hostAlias, cwd, rows, cols) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const client = await connectSSH(hostAlias);
+      const sessionId = generateSessionId();
+      
+      client.exec("bash --init-file <(echo 'PS1=\"\\u@\\h:\\w\\$ \"')", {
+        pty: { type: "xterm-256color", rows: rows || 24, cols: cols || 80 },
+        env: { ...process.env, TERM: "xterm-256color", COLUMNS: String(cols || 80), LINES: String(rows || 24) },
+        cwd: cwd || "/root",
+      }, (err, stream) => {
+        if (err) return reject(err);
+        
+        const session = {
+          sessionId,
+          stream,
+          client,
+          buffer: "",
+          lastOutput: "",
+          alive: true,
+          createdAt: Date.now(),
+          lastActivity: Date.now(),
+        };
+        
+        stream.on("data", (data) => {
+          const chunk = data.toString();
+          session.buffer += chunk;
+          session.lastOutput += chunk;
+          session.lastActivity = Date.now();
+        });
+        
+        stream.stderr.on("data", (data) => {
+          session.buffer += data.toString();
+          session.lastActivity = Date.now();
+        });
+        
+        stream.on("close", () => {
+          session.alive = false;
+          shellSessions.delete(sessionId);
+        });
+        
+        stream.on("error", () => {
+          session.alive = false;
+          shellSessions.delete(sessionId);
+        });
+        
+        shellSessions.set(sessionId, session);
+        
+        // Wait a bit for initial prompt
+        setTimeout(() => {
+          const output = session.lastOutput;
+          session.lastOutput = "";
+          resolve({ sessionId, output });
+        }, 500);
+      });
+    } catch (e) { reject(e); }
+  });
+}
+
+function writeToShell(sessionId, data) {
+  return new Promise((resolve, reject) => {
+    const session = shellSessions.get(sessionId);
+    if (!session || !session.alive) {
+      return reject(new Error(`Shell session ${sessionId} not found or closed`));
+    }
+    
+    session.lastOutput = "";
+    session.lastActivity = Date.now();
+    
+    session.stream.write(data + "\n", (err) => {
+      if (err) return reject(err);
+      
+      // Wait for output
+      setTimeout(() => {
+        const output = session.lastOutput;
+        session.lastOutput = "";
+        resolve({ output, buffer: session.buffer });
+      }, 300);
+    });
+  });
+}
+
+function readShellOutput(sessionId) {
+  return new Promise((resolve) => {
+    const session = shellSessions.get(sessionId);
+    if (!session || !session.alive) {
+      return resolve({ output: "", alive: false });
+    }
+    
+    const output = session.lastOutput;
+    session.lastOutput = "";
+    session.lastActivity = Date.now();
+    
+    resolve({ output, buffer: session.buffer, alive: true });
+  });
+}
+
+function closeShellSession(sessionId) {
+  return new Promise((resolve) => {
+    const session = shellSessions.get(sessionId);
+    if (!session) return resolve({ closed: true });
+    
+    try {
+      session.stream.write("exit\n");
+      setTimeout(() => {
+        try { session.stream.close(); } catch (e) {}
+        try { session.client.end(); } catch (e) {}
+        shellSessions.delete(sessionId);
+        resolve({ closed: true });
+      }, 200);
+    } catch (e) {
+      shellSessions.delete(sessionId);
+      resolve({ closed: true });
+    }
+  });
+}
+
 // ─── MCP Server ────────────────────────────────────────────────────
 
 const server = new McpServer({ name: "remote-ssh", version: "2.0.0" });
@@ -982,6 +1107,219 @@ server.tool(
       const r = await execCommand(cmd, "/", host);
       return { content: [{ type: "text", text: r.stdout || "OK" }] };
     } catch (e) { return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true }; }
+  }
+);
+
+// ─── Persistent Shell Sessions ─────────────────────────────────────
+
+server.tool(
+  "ssh_shell_open",
+  "Open a persistent interactive shell session on a remote host (bind shell style)",
+  {
+    host: z.string().optional().describe("Host alias"),
+    cwd: z.string().optional().describe("Starting working directory"),
+    rows: z.number().optional().describe("Terminal rows (default: 24)"),
+    cols: z.number().optional().describe("Terminal columns (default: 80)"),
+  },
+  async ({ host, cwd, rows, cols }) => {
+    try {
+      const alias = resolveHost(host);
+      const result = await openShellSession(alias, cwd, rows, cols);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            sessionId: result.sessionId,
+            host: alias,
+            status: "open",
+            output: result.output,
+            message: `Persistent shell opened on ${alias}. Use sessionId for ssh_shell_exec/ssh_shell_read.`,
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "ssh_shell_exec",
+  "Execute a command in a persistent shell session",
+  {
+    sessionId: z.string().describe("Shell session ID"),
+    command: z.string().describe("Command to execute"),
+    waitMs: z.number().optional().describe("Wait time in ms for output (default: 300)"),
+  },
+  async ({ sessionId, command, waitMs }) => {
+    try {
+      const session = shellSessions.get(sessionId);
+      if (!session || !session.alive) {
+        return { content: [{ type: "text", text: `Error: Shell session ${sessionId} not found or closed` }], isError: true };
+      }
+
+      // Override wait time if provided
+      const waitTime = waitMs || 300;
+      
+      const result = await new Promise((resolve, reject) => {
+        session.lastOutput = "";
+        session.lastActivity = Date.now();
+        
+        session.stream.write(command + "\n", (err) => {
+          if (err) return reject(err);
+          
+          setTimeout(() => {
+            const output = session.lastOutput;
+            session.lastOutput = "";
+            resolve({ output });
+          }, waitTime);
+        });
+      });
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            sessionId,
+            command,
+            output: result.output,
+            alive: session.alive,
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "ssh_shell_read",
+  "Read output from a persistent shell session",
+  {
+    sessionId: z.string().describe("Shell session ID"),
+    clear: z.boolean().optional().describe("Clear buffer after reading"),
+  },
+  async ({ sessionId, clear }) => {
+    try {
+      const session = shellSessions.get(sessionId);
+      if (!session || !session.alive) {
+        return { content: [{ type: "text", text: `Error: Shell session ${sessionId} not found or closed` }], isError: true };
+      }
+
+      const output = session.lastOutput;
+      const buffer = session.buffer;
+      
+      if (clear) {
+        session.lastOutput = "";
+        session.buffer = "";
+      } else {
+        session.lastOutput = "";
+      }
+      
+      session.lastActivity = Date.now();
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            sessionId,
+            output,
+            bufferSize: buffer.length,
+            alive: session.alive,
+            createdAt: new Date(session.createdAt).toISOString(),
+            lastActivity: new Date(session.lastActivity).toISOString(),
+          }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "ssh_shell_close",
+  "Close a persistent shell session",
+  {
+    sessionId: z.string().describe("Shell session ID"),
+  },
+  async ({ sessionId }) => {
+    try {
+      await closeShellSession(sessionId);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ sessionId, closed: true, message: "Shell session closed" }),
+        }],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "ssh_shell_status",
+  "List all active persistent shell sessions",
+  {},
+  async () => {
+    try {
+      const sessions = [];
+      for (const [id, session] of shellSessions.entries()) {
+        sessions.push({
+          sessionId: id,
+          alive: session.alive,
+          host: session.client.config?.host || "unknown",
+          createdAt: new Date(session.createdAt).toISOString(),
+          lastActivity: new Date(session.lastActivity).toISOString(),
+          bufferSize: session.buffer.length,
+        });
+      }
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ activeSessions: sessions.length, sessions }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "ssh_shell_send",
+  "Send input to a shell without waiting for output (for interactive programs)",
+  {
+    sessionId: z.string().describe("Shell session ID"),
+    input: z.string().describe("Input to send (e.g. key sequences, partial commands)"),
+  },
+  async ({ sessionId, input }) => {
+    try {
+      const session = shellSessions.get(sessionId);
+      if (!session || !session.alive) {
+        return { content: [{ type: "text", text: `Error: Shell session ${sessionId} not found or closed` }], isError: true };
+      }
+
+      session.lastActivity = Date.now();
+      
+      await new Promise((resolve, reject) => {
+        session.stream.write(input, (err) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ sessionId, sent: input.length, alive: session.alive }),
+        }],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
   }
 );
 
